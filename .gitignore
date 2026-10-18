@@ -4,7 +4,8 @@ node_modules
 out
 .DS_Store
 *.tsbuildinfo
-.env*.local
+.env*
+!.env.example
 data/*.db
 data/*.db-*
 data/*.db-journal
