@@ -1,7 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
-import { repasDuSejour, sejourDuCentre, trouverCentre, verifierRepasDuCentre } from "@/lib/donnees";
+import { produitsDuCentre, repasDuSejour, sejourDuCentre, trouverCentre, verifierRepasDuCentre } from "@/lib/donnees";
 import { getDb } from "@/lib/db";
 import { ingredients, plats } from "@/lib/db/schema";
 import { remettreAConfirmer, viderRepas } from "@/lib/ecritures";
@@ -102,8 +102,8 @@ export async function ajouterIngredient(formData: FormData) {
   const platId = String(formData.get("platId") ?? "");
   const nom = String(formData.get("nom") ?? "").trim();
   const cle = String(formData.get("grammageCle") ?? "");
-  if (!nom) rediriger(chemin, "erreur", "Indiquez l'ingrédient.");
-  if (!CLES_GRAMMAGE.includes(cle)) rediriger(chemin, "erreur", "Choisissez une famille de grammage.");
+  if (!nom) rediriger(chemin, "erreur", "Indiquez le composant du plat.");
+  if (!CLES_GRAMMAGE.includes(cle)) rediriger(chemin, "erreur", "Choisissez une famille de portion.");
   const db = await getDb();
   const [plat] = await db.select().from(plats).where(eq(plats.id, platId));
   if (!plat || plat.repasId !== repasId) rediriger(chemin, "erreur", "Plat introuvable.");
@@ -112,7 +112,7 @@ export async function ajouterIngredient(formData: FormData) {
     platId,
     nom,
     grammageCle: cle,
-    produitStockId: null,
+    produitStockId: await produitDuFormulaire(formData),
     quantiteConfirmee: null,
   });
   await remettreAConfirmer(db, repasId);
@@ -123,13 +123,30 @@ export async function changerFamille(formData: FormData) {
   const { chemin, repasId } = await contexteRepas(formData);
   const ingredientId = String(formData.get("ingredientId") ?? "");
   const cle = String(formData.get("grammageCle") ?? "");
-  if (!CLES_GRAMMAGE.includes(cle)) rediriger(chemin, "erreur", "Choisissez une famille de grammage.");
+  if (!CLES_GRAMMAGE.includes(cle)) rediriger(chemin, "erreur", "Choisissez une famille de portion.");
   const db = await getDb();
   const ingredient = await ingredientDuRepas(db, ingredientId, repasId);
-  if (!ingredient) rediriger(chemin, "erreur", "Ingrédient introuvable.");
-  await db.update(ingredients).set({ grammageCle: cle, quantiteConfirmee: null }).where(eq(ingredients.id, ingredientId));
+  if (!ingredient) rediriger(chemin, "erreur", "Composant introuvable.");
+  await db.update(ingredients).set({
+    grammageCle: cle,
+    produitStockId: await produitDuFormulaire(formData),
+    quantiteConfirmee: null,
+  }).where(eq(ingredients.id, ingredientId));
   await remettreAConfirmer(db, repasId);
-  rediriger(chemin, "message", "Famille de grammage mise à jour.");
+  rediriger(chemin, "message", "Le composant est rapproché du stock.");
+}
+
+async function produitDuFormulaire(formData: FormData) {
+  const produitId = String(formData.get("produitId") ?? "");
+  if (!produitId) return null;
+  const slug = String(formData.get("slug") ?? "");
+  const repasId = String(formData.get("repasId") ?? "");
+  const { centre } = await verifierRepasDuCentre(slug, repasId);
+  const produits = await produitsDuCentre(centre.id);
+  if (!produits.some((produit) => produit.id === produitId)) {
+    rediriger(cheminCentre(slug, `menus/${repasId}`), "erreur", "Ce produit n'est pas dans le stock.");
+  }
+  return produitId;
 }
 
 export async function supprimerIngredient(formData: FormData) {

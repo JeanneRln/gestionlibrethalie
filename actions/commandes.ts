@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { aujourdhuiParis } from "@/lib/dates";
 import { commandesDuCentre, trouverCentre } from "@/lib/donnees";
 import { getDb } from "@/lib/db";
@@ -20,7 +20,7 @@ export async function importerCommande(formData: FormData) {
   const chemin = cheminCentre(slug || "menton", "commandes");
   if (!centre) rediriger("/centres/menton/menus", "erreur", "Centre introuvable.");
   const fournisseur = String(formData.get("fournisseur") ?? "");
-  if (!estFournisseur(fournisseur)) rediriger(chemin, "erreur", "Choisissez Transgourmet ou Sysco.");
+  if (!estFournisseur(fournisseur)) rediriger(chemin, "erreur", "Choisissez un fournisseur.");
   const fichier = formData.get("fichier");
   if (!(fichier instanceof File) || fichier.size === 0) rediriger(chemin, "erreur", "Choisissez le PDF de la commande.");
   if (fichier.size > TAILLE_MAX) rediriger(chemin, "erreur", "Le fichier dépasse 12 Mo.");
@@ -74,6 +74,62 @@ export async function importerCommande(formData: FormData) {
       ? `${extrait.lignes.length} lignes lues, dont ${douteuses} à vérifier avant l'entrée en stock.`
       : `${extrait.lignes.length} lignes lues. Vérifiez-les puis validez l'entrée en stock.`,
   );
+}
+
+const SAISIE_MANUELLE = "Saisie manuelle";
+
+export async function ajouterLigne(formData: FormData) {
+  const slug = String(formData.get("slug") ?? "");
+  const centre = await trouverCentre(slug);
+  const chemin = cheminCentre(slug || "menton", "commandes");
+  if (!centre) rediriger("/centres/menton/menus", "erreur", "Centre introuvable.");
+  const nom = String(formData.get("nom") ?? "").trim();
+  const quantite = lireNombre(formData.get("quantite"));
+  const unite = normaliserUnite(String(formData.get("unite") ?? ""));
+  if (!nom) rediriger(chemin, "erreur", "Indiquez l'intitulé du produit.");
+  if (quantite === null || quantite <= 0) rediriger(chemin, "erreur", "Indiquez une quantité.");
+  if (!unite || unite === "colis") rediriger(chemin, "erreur", "Choisissez une unité : kg, g, L, ml ou pièce.");
+
+  const db = await getDb();
+  const commandeIdDemande = String(formData.get("commandeId") ?? "");
+  let commandeId = commandeIdDemande;
+  if (commandeId) {
+    const [commande] = await db.select().from(commandes).where(eq(commandes.id, commandeId));
+    if (!commande || commande.centreId !== centre.id) rediriger(chemin, "erreur", "Commande introuvable.");
+  } else {
+    const fournisseur = String(formData.get("fournisseur") ?? "");
+    if (!estFournisseur(fournisseur)) rediriger(chemin, "erreur", "Choisissez un fournisseur.");
+    const [manuelle] = await db
+      .select()
+      .from(commandes)
+      .where(and(eq(commandes.centreId, centre.id), eq(commandes.fournisseur, fournisseur), eq(commandes.fichierNom, SAISIE_MANUELLE)))
+      .orderBy(desc(commandes.creeLe));
+    if (manuelle) {
+      commandeId = manuelle.id;
+    } else {
+      commandeId = crypto.randomUUID();
+      await db.insert(commandes).values({
+        id: commandeId,
+        centreId: centre.id,
+        fournisseur,
+        dateCommande: aujourdhuiParis(),
+        fichierNom: SAISIE_MANUELLE,
+        creeLe: new Date().toISOString(),
+      });
+    }
+  }
+
+  await db.insert(lignesCommande).values({
+    id: crypto.randomUUID(),
+    commandeId,
+    nomProduit: nom,
+    quantite,
+    unite,
+    confiance: 1,
+    statut: "a_valider",
+    produitStockId: null,
+  });
+  rediriger(chemin, "message", `${nom} est ajouté. Cochez la ligne puis entrez-la en stock.`);
 }
 
 export async function validerLignes(formData: FormData) {
@@ -134,9 +190,8 @@ export async function validerLignes(formData: FormData) {
   rediriger(chemin, validees > 0 ? "message" : "erreur", validees > 0 ? `${validees} ligne${validees > 1 ? "s" : ""} entrée${validees > 1 ? "s" : ""} en stock.` : "Cochez au moins une ligne à valider.");
 }
 
-export async function ignorerLigne(formData: FormData) {
+export async function ignorerLigne(ligneId: string, formData: FormData) {
   const slug = String(formData.get("slug") ?? "");
-  const ligneId = String(formData.get("ligneId") ?? "");
   const centre = await trouverCentre(slug);
   const chemin = cheminCentre(slug || "menton", "commandes");
   if (!centre) rediriger("/centres/menton/menus", "erreur", "Centre introuvable.");

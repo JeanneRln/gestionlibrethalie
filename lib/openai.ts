@@ -31,6 +31,7 @@ export async function extraireMenu(
       .map((creneau) => `${creneau.date} ${creneau.service}`)
       .join(", ")}.
 Pour chaque plat, liste les ingrédients alimentaires et rattache chacun à une seule clé de grammage.
+Pour un fruit ou un légume, le nom est l'intitulé écrit sur le menu (pommes, carottes, salade verte), pas le libellé de la famille.
 N'invente pas de grammage en grammes : la clé suffit.
 Au petit-déjeuner et au goûter, utilise les clés du groupe petit-déjeuner (pain_pd, lait_petit_dejeuner, lait_gouter, etc.), pas les clés du repas principal.
 Le lait du goûter est lait_gouter, celui du petit-déjeuner est lait_petit_dejeuner.
@@ -45,7 +46,7 @@ ${decrireCles()}`,
 export async function extraireCommande(fichier: FichierIa): Promise<CommandeExtraite> {
   const brut = await demanderJson(
     fichier,
-    `Tu lis un bon de commande Transgourmet ou Sysco. Extrais chaque ligne produit avec la quantité commandée, l'unité (kg, g, L, ml, piece ou colis) et un score de confiance entre 0 et 1.
+    `Tu lis un bon de commande Transgourmet, Sysco ou Vivalya. Extrais chaque ligne produit avec la quantité commandée, l'unité (kg, g, L, ml, piece ou colis) et un score de confiance entre 0 et 1.
 Si la quantité ou l'unité est illisible, mets quantite à null et une confiance basse.
 N'invente pas de ligne absente du document.`,
     schemaCommande(),

@@ -1,13 +1,19 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { aujourdhuiParis } from "@/lib/dates";
 import {
+  absencesDesRepas,
+  comptesEffectifs,
   contenuRepas,
   grammagesDuCentre,
+  ingredientsDesPlats,
   mouvementsDuCentre,
+  platsDesRepas,
   produitDuCentre,
   produitsDuCentre,
+  repasDuSejour,
+  sejourDuCentre,
   trouverCentre,
   verifierRepasDuCentre,
 } from "@/lib/donnees";
@@ -15,6 +21,7 @@ import { getDb } from "@/lib/db";
 import { ingredients, mouvements, produitsStock, repas } from "@/lib/db/schema";
 import { arrondir, lireNombre } from "@/lib/format";
 import { cheminCentre, rediriger } from "@/lib/navigation";
+import { assemblerLignes, grouperConsommes, lireMoment, repasDuMoment, repartir, saisieRegulation, type LignePoint } from "@/lib/pointStock";
 import { estService } from "@/lib/services";
 import { normaliserNom, normaliserUnite, uniteCompatible, versBase } from "@/lib/unites";
 import { stockReel } from "@/lib/projection";
@@ -160,4 +167,128 @@ export async function confirmerRepas(formData: FormData) {
   }
   await db.update(repas).set({ confirmeLe: new Date().toISOString() }).where(eq(repas.id, ligne.id));
   rediriger(cheminCentre(slug, "stock"), "message", "Quantités du repas enregistrées. Le stock est à jour.");
+}
+
+export async function confirmerAvant(formData: FormData) {
+  const slug = String(formData.get("slug") ?? "");
+  const momentTexte = String(formData.get("moment") ?? "");
+  const chemin = `${cheminCentre(slug || "menton", "stock/point")}?moment=${encodeURIComponent(momentTexte)}`;
+  const centre = await trouverCentre(slug);
+  if (!centre) rediriger("/centres/menton/menus", "erreur", "Centre introuvable.");
+  const moment = lireMoment(momentTexte);
+  if (!moment) rediriger(cheminCentre(slug, "stock/point"), "erreur", "Choisissez d'abord où vous en êtes.");
+
+  const sejour = await sejourDuCentre(centre.id);
+  if (!sejour) rediriger(cheminCentre(slug, "stock"), "erreur", "Créez d'abord le séjour.");
+  const liste = await repasDuSejour(sejour.id);
+  if (!liste.some((item) => item.id === moment.repasId)) {
+    rediriger(cheminCentre(slug, "stock/point"), "erreur", "Ce repas est introuvable.");
+  }
+  const cibles = repasDuMoment(liste, moment);
+  if (cibles.length === 0) {
+    rediriger(chemin, "message", "Aucun repas à compter pour ce moment.");
+  }
+
+  const plats = await platsDesRepas(cibles.map((item) => item.id));
+  const ingredientsLignes = await ingredientsDesPlats(plats.map((plat) => plat.id));
+  const grammages = await grammagesDuCentre(centre.id);
+  const produits = await produitsDuCentre(centre.id);
+  const groupes = grouperConsommes(
+    assemblerLignes({
+      repas: cibles,
+      plats,
+      ingredients: ingredientsLignes,
+      grammages: grammages.map(portion),
+      inscrits: await comptesEffectifs(sejour.id),
+      absences: await absencesDesRepas(cibles.map((item) => item.id)),
+      produits,
+    }),
+    produits,
+  );
+
+  const reglables = groupes.flatMap((groupe) => {
+    const produit = produits.find((item) => item.id === groupe.produitStockId);
+    return produit ? [{ groupe, produit }] : [];
+  });
+  const sorties: { ingredient: LignePoint; produitId: string; saisie: number; base: number }[] = [];
+  for (const [index, ligne] of reglables.entries()) {
+    const { groupe, produit } = ligne;
+    const ids = String(formData.get(`ids_${index}`) ?? "");
+    const attendu = groupe.lignes.map((item) => item.ingredientId).join(",");
+    if (ids !== attendu) rediriger(chemin, "erreur", "La liste a changé. Rouvrez la mise à jour.");
+    const saisieUnite = saisieRegulation(groupe.unite, groupe.theorique, produit.uniteBase, produit.nom);
+    const quantite = lireNombre(formData.get(`q_${index}`));
+    if (quantite === null || quantite < 0) rediriger(chemin, "erreur", `Indiquez la quantité de ${groupe.titre}.`);
+    const converti = quantite === 0 ? { quantite: 0 } : versBase(quantite, saisieUnite.unite);
+    if (!converti) rediriger(chemin, "erreur", `Unité illisible pour ${groupe.titre}.`);
+    const parts = quantite === 0 ? groupe.lignes.map(() => 0) : repartir(converti.quantite, groupe.lignes.map((item) => item.theorique));
+    groupe.lignes.forEach((item, position) => {
+      const part = arrondir(parts[position] ?? 0);
+      sorties.push({
+        ingredient: item,
+        produitId: part > 0 ? produit.id : "",
+        saisie: part,
+        base: part,
+      });
+    });
+  }
+
+  const db = await getDb();
+  const repasIds = cibles.map((item) => item.id);
+  await db.delete(mouvements).where(and(inArray(mouvements.repasId, repasIds), eq(mouvements.type, "repas")));
+  for (const sortie of sorties) {
+    const identifiant = sortie.ingredient.ingredientId;
+    let ingredientId: string | null = identifiant;
+    if (identifiant.startsWith("plat:")) {
+      ingredientId = crypto.randomUUID();
+      await db.insert(ingredients).values({
+        id: ingredientId,
+        platId: sortie.ingredient.platId,
+        nom: sortie.ingredient.nom,
+        grammageCle: sortie.ingredient.grammageCle,
+        produitStockId: sortie.produitId || null,
+        quantiteConfirmee: sortie.saisie,
+      });
+    } else if (identifiant.startsWith("boisson:")) {
+      ingredientId = null;
+    } else {
+      await db
+        .update(ingredients)
+        .set({
+          produitStockId: sortie.produitId || null,
+          quantiteConfirmee: sortie.saisie,
+        })
+        .where(eq(ingredients.id, identifiant));
+    }
+    if (sortie.produitId && sortie.base > 0) {
+      await db.insert(mouvements).values({
+        id: crypto.randomUUID(),
+        produitId: sortie.produitId,
+        type: "repas",
+        quantite: -sortie.base,
+        date: cibles.find((item) => item.id === sortie.ingredient.repasId)?.date ?? "",
+        repasId: sortie.ingredient.repasId,
+        ligneCommandeId: null,
+        ingredientId,
+      });
+    }
+  }
+  await db.update(repas).set({ confirmeLe: new Date().toISOString() }).where(inArray(repas.id, repasIds));
+  rediriger(
+    cheminCentre(slug, "stock"),
+    "message",
+    cibles.length > 1 ? `${cibles.length} repas sont régularisés.` : "Le repas est régularisé.",
+  );
+}
+
+
+function portion(ligne: { cle: string; serviceGroupe: string; unite: string; retenuEnfant: number; retenuAdo: number; retenuAdulte: number }) {
+  return {
+    cle: ligne.cle,
+    serviceGroupe: ligne.serviceGroupe as "repas_principal" | "petit_dej_gouter" | "diner_enfant",
+    unite: ligne.unite,
+    retenuEnfant: ligne.retenuEnfant,
+    retenuAdo: ligne.retenuAdo,
+    retenuAdulte: ligne.retenuAdulte,
+  };
 }

@@ -11,10 +11,12 @@ import {
   comptesEffectifs,
   contenuRepas,
   grammagesDuCentre,
+  produitsDuCentre,
   verifierRepasDuCentre,
 } from "@/lib/donnees";
 import { presents } from "@/lib/effectifs";
 import { lireAvis } from "@/lib/navigation";
+import { produitProbable } from "@/lib/pointStock";
 import { estService, libelleService, libelleTypePlat, TYPES_PLAT } from "@/lib/services";
 
 export default async function PageRepas({
@@ -28,11 +30,12 @@ export default async function PageRepas({
   const { centre, sejour, repas } = await verifierRepasDuCentre(slug, repasId);
   const avis = await lireAvis(searchParams);
   const service = estService(repas.service) ? repas.service : "dejeuner";
-  const [{ plats, ingredients }, grammageLignes, inscrits, absences] = await Promise.all([
+  const [{ plats, ingredients }, grammageLignes, inscrits, absences, produits] = await Promise.all([
     contenuRepas(repas.id),
     grammagesDuCentre(centre.id),
     comptesEffectifs(sejour.id),
     absencesDesRepas([repas.id]),
+    produitsDuCentre(centre.id),
   ]);
   const compte = presents(inscrits, absences[repas.id] ?? {});
   const portions = grammageLignes.map((ligne) => ({
@@ -59,6 +62,9 @@ export default async function PageRepas({
           </h2>
           <p className="mt-1 text-sm text-ink/70">
             {compte.enfant} enfants · {compte.ado} ados · {compte.adulte} adultes. Les effectifs se modifient dans l'onglet Effectifs.
+          </p>
+          <p className="mt-2 max-w-2xl text-sm text-ink/70">
+            Chaque ligne est un composant du menu. La famille de portion calcule les grammes. Le produit du stock est le rapprochement avec votre réserve : il est proposé, vous pouvez le corriger, puis enregistrer.
           </p>
         </div>
         <Link href={`/centres/${centre.slug}/stock/${repas.id}`} className={boutonSecondaire}>
@@ -108,27 +114,48 @@ export default async function PageRepas({
                       ) : (
                         <p className="text-sm text-danger">Famille de grammage inconnue.</p>
                       )}
-                      <form action={changerFamille} className="mt-2 flex flex-col gap-2 sm:flex-row">
+                      <form action={changerFamille} className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
                         <input type="hidden" name="slug" value={centre.slug} />
                         <input type="hidden" name="repasId" value={repas.id} />
                         <input type="hidden" name="ingredientId" value={ingredient.id} />
-                        <div className="min-w-0 flex-1">
+                        <label className="text-sm">
+                          <span className="mb-1 block text-ink/60">Famille de portion</span>
                           <SelectFamille name="grammageCle" valeur={ingredient.grammageCle} />
-                        </div>
+                        </label>
+                        <label className="text-sm">
+                          <span className="mb-1 block text-ink/60">
+                            Produit du stock
+                            {!ingredient.produitStockId ? " · proposition" : ""}
+                          </span>
+                          <SelectStock
+                            produits={produits}
+                            valeur={ingredient.produitStockId ?? produitProbable(ingredient.nom, plat.nom, lignes.length === 1, produits)?.id ?? ""}
+                          />
+                        </label>
                         <button className={boutonSecondaire} type="submit">
-                          Changer la famille
+                          Enregistrer
                         </button>
                       </form>
                     </li>
                   );
                 })}
               </ul>
-              <form action={ajouterIngredient} className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <form action={ajouterIngredient} className="mt-4 grid gap-2 border-t border-line pt-4 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
                 <input type="hidden" name="slug" value={centre.slug} />
                 <input type="hidden" name="repasId" value={repas.id} />
                 <input type="hidden" name="platId" value={plat.id} />
-                <input className={champ} name="nom" placeholder="Ingrédient" required />
-                <SelectFamille name="grammageCle" />
+                <label className="text-sm">
+                  <span className="mb-1 block text-ink/60">Ajouter un composant</span>
+                  <input className={champ} name="nom" placeholder="Nom sur le menu" required />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-ink/60">Famille de portion</span>
+                  <SelectFamille name="grammageCle" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-ink/60">Produit du stock</span>
+                  <SelectStock produits={produits} />
+                </label>
                 <button className={boutonSecondaire} type="submit">
                   Ajouter
                 </button>
@@ -154,5 +181,24 @@ export default async function PageRepas({
         </button>
       </form>
     </div>
+  );
+}
+
+function SelectStock({
+  produits,
+  valeur = "",
+}: {
+  produits: { id: string; nom: string }[];
+  valeur?: string;
+}) {
+  return (
+    <select className={champ} name="produitId" defaultValue={valeur}>
+      <option value="">Aucun</option>
+      {produits.map((produit) => (
+        <option key={produit.id} value={produit.id}>
+          {produit.nom}
+        </option>
+      ))}
+    </select>
   );
 }

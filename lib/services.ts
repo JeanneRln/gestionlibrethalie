@@ -21,6 +21,7 @@ export type TypePlat = (typeof TYPES_PLAT)[number]["id"];
 export const FOURNISSEURS = [
   { id: "transgourmet", label: "Transgourmet" },
   { id: "sysco", label: "Sysco" },
+  { id: "vivalya", label: "Vivalya" },
 ] as const;
 
 export type FournisseurId = (typeof FOURNISSEURS)[number]["id"];

@@ -62,16 +62,12 @@ export function Shell({
         {aConfirmer.length > 0 ? (
           <div className="px-5 pt-4 sm:px-8">
             <Link
-              href={
-                aConfirmer.length === 1 && premier
-                  ? `/centres/${centre.slug}/stock/${premier.id}`
-                  : `/centres/${centre.slug}/stock`
-              }
+              href={`/centres/${centre.slug}/stock/point`}
               className="block rounded-xl bg-warnbg px-4 py-3 text-sm font-medium text-warn"
             >
               {aConfirmer.length === 1 && premier
-                ? `Le ${libelleService(premier.service as ServiceId).toLowerCase()} du ${formaterJourCourt(premier.date)} est passé. Mettre à jour les quantités.`
-                : `${aConfirmer.length} repas sont passés sans mise à jour des quantités.`}
+                ? `Le ${libelleService(premier.service as ServiceId).toLowerCase()} du ${formaterJourCourt(premier.date)} est passé. Régulariser les quantités.`
+                : `${aConfirmer.length} repas sont passés. Régulariser les quantités.`}
             </Link>
           </div>
         ) : null}

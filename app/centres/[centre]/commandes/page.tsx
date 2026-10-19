@@ -1,4 +1,4 @@
-import { ignorerLigne, importerCommande, validerLignes } from "@/actions/commandes";
+import { ajouterLigne, ignorerLigne, importerCommande, validerLignes } from "@/actions/commandes";
 import { Bandeau } from "@/components/Bandeau";
 import { bouton, boutonSecondaire, boutonTexte, champ } from "@/components/styles";
 import { formaterJour } from "@/lib/dates";
@@ -27,7 +27,7 @@ export default async function PageCommandes({
       <section className="rounded-2xl border border-line bg-card p-5">
         <h2 className="font-serif text-3xl">Commandes</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink/70">
-          Importez le PDF Transgourmet ou Sysco. Les quantités incertaines restent à valider avant d'entrer en stock.
+          Importez le PDF Transgourmet, Sysco ou Vivalya, ou ajoutez une ligne à la main avec l'intitulé que vous voulez. Les quantités restent à valider avant d'entrer en stock.
         </p>
         <form action={importerCommande} className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end">
           <input type="hidden" name="slug" value={centre.slug} />
@@ -47,6 +47,40 @@ export default async function PageCommandes({
           </label>
           <button className={bouton} type="submit">
             Lire la commande
+          </button>
+        </form>
+        <form action={ajouterLigne} className="mt-6 grid gap-3 border-t border-line pt-5 sm:grid-cols-2 lg:grid-cols-[1fr_8rem_8rem_10rem_auto] lg:items-end">
+          <input type="hidden" name="slug" value={centre.slug} />
+          <label className="block text-sm sm:col-span-2 lg:col-span-1">
+            <span className="mb-1 block text-ink/70">Intitulé</span>
+            <input className={champ} name="nom" placeholder="Carottes, pommes, salade…" required />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/70">Quantité</span>
+            <input className={champ} type="number" min={0} step="0.01" name="quantite" required />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/70">Unité</span>
+            <select className={champ} name="unite" defaultValue="kg">
+              {UNITES_COMMANDE.filter((unite) => unite.id !== "colis").map((unite) => (
+                <option key={unite.id} value={unite.id}>
+                  {unite.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink/70">Fournisseur</span>
+            <select className={champ} name="fournisseur" defaultValue="transgourmet">
+              {FOURNISSEURS.map((fournisseur) => (
+                <option key={fournisseur.id} value={fournisseur.id}>
+                  {fournisseur.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className={boutonSecondaire} type="submit">
+            Ajouter la ligne
           </button>
         </form>
       </section>
@@ -99,7 +133,7 @@ export default async function PageCommandes({
                           </option>
                         ))}
                       </select>
-                      <button className={boutonTexte} type="submit" formAction={ignorerLigne} name="ligneId" value={ligne.id}>
+                      <button className={boutonTexte} type="submit" formAction={ignorerLigne.bind(null, ligne.id)}>
                         Ignorer
                       </button>
                     </div>
@@ -110,6 +144,22 @@ export default async function PageCommandes({
                 </button>
               </form>
             ) : null}
+            <form action={ajouterLigne} className="mt-4 grid gap-2 sm:grid-cols-[1fr_8rem_8rem_auto] sm:items-end">
+              <input type="hidden" name="slug" value={centre.slug} />
+              <input type="hidden" name="commandeId" value={commande.id} />
+              <input className={champ} name="nom" placeholder="Ajouter une ligne : carottes, pommes…" required aria-label="Intitulé" />
+              <input className={champ} type="number" min={0} step="0.01" name="quantite" placeholder="Quantité" required aria-label="Quantité" />
+              <select className={champ} name="unite" defaultValue="kg" aria-label="Unité">
+                {UNITES_COMMANDE.filter((unite) => unite.id !== "colis").map((unite) => (
+                  <option key={unite.id} value={unite.id}>
+                    {unite.label}
+                  </option>
+                ))}
+              </select>
+              <button className={boutonSecondaire} type="submit">
+                Ajouter
+              </button>
+            </form>
             {traitees.length > 0 ? (
               <ul className="mt-4 space-y-1 text-sm text-ink/70">
                 {traitees.map((ligne) => (

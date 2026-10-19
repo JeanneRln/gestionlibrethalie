@@ -95,6 +95,27 @@ export default async function PageStock({
       <Bandeau erreur={avis.erreur} message={avis.message} />
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-6">
+          {aConfirmer.length > 0 ? (
+            <section className="rounded-2xl bg-warnbg p-5">
+              <h2 className="font-serif text-2xl text-warn">Quantités à régulariser</h2>
+              <p className="mt-2 text-sm text-ink/70">
+                {aConfirmer.length} repas sont passés. Choisissez le moment, puis corrigez seulement les quantités sorties.
+              </p>
+              <Link href={`/centres/${centre.slug}/stock/point`} className={`${bouton} mt-3`}>
+                Régulariser
+              </Link>
+            </section>
+          ) : (
+            <section className="rounded-2xl border border-line bg-card p-5">
+              <h2 className="font-serif text-2xl">Quantités à régulariser</h2>
+              <p className="mt-2 text-sm text-ink/70">
+                Choisissez le moment, puis indiquez les quantités sorties pour les repas déjà passés.
+              </p>
+              <Link href={`/centres/${centre.slug}/stock/point`} className={`${bouton} mt-3`}>
+                Régulariser
+              </Link>
+            </section>
+          )}
           <section className="rounded-2xl border border-line bg-card p-5">
             <h2 className="font-serif text-3xl">Stock à ce jour</h2>
             <p className="mt-2 text-sm text-ink/70">
@@ -152,21 +173,6 @@ export default async function PageStock({
               );
             })}
           </ul>
-
-          {aConfirmer.length > 0 ? (
-            <section className="rounded-2xl bg-warnbg p-5">
-              <h2 className="font-serif text-2xl text-warn">Repas à mettre à jour</h2>
-              <ul className="mt-3 space-y-2">
-                {aConfirmer.map((repas) => (
-                  <li key={repas.id}>
-                    <Link href={`/centres/${centre.slug}/stock/${repas.id}`} className="text-sm font-semibold text-warn underline-offset-2 hover:underline">
-                      {libelleService(repas.service as ServiceId)} du {formaterJourCourt(repas.date)}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
         </div>
 
         <aside className="w-full shrink-0 rounded-2xl border border-line bg-card p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-80 lg:overflow-y-auto">
