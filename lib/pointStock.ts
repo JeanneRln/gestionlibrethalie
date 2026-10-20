@@ -2,7 +2,7 @@ import { quantiteTheorique, type LignePortion } from "@/lib/calcul";
 import { presents, type Comptes } from "@/lib/effectifs";
 import { arrondir } from "@/lib/format";
 import { estService, indexService } from "@/lib/services";
-import { normaliserNom, uniteCompatible } from "@/lib/unites";
+import { normaliserNom, uniteCompatible, versBase } from "@/lib/unites";
 
 const MOTS_VIDES = new Set([
   "de", "la", "le", "les", "au", "aux", "et", "ou", "du", "des", "un", "une",
@@ -126,6 +126,20 @@ export function assemblerLignes(entree: {
   const ajouter = (ligne: Omit<LignePoint, "unite" | "theorique"> & { service: string }) => {
     if (!estService(ligne.service)) return;
     const compte = presents(entree.inscrits, entree.absences[ligne.repasId] ?? {});
+    if (jetons(ligne.nom).includes("chips")) {
+      lignes.push({
+        ingredientId: ligne.ingredientId,
+        repasId: ligne.repasId,
+        platId: ligne.platId,
+        platNom: ligne.platNom,
+        nom: ligne.nom,
+        grammageCle: ligne.grammageCle,
+        unite: "piece",
+        theorique: compte.total,
+        produitStockId: ligne.produitStockId,
+      });
+      return;
+    }
     const quantite = quantiteTheorique(ligne.grammageCle, ligne.service, compte, entree.grammages);
     const famille = entree.grammages.find((item) => item.cle === ligne.grammageCle);
     lignes.push({
@@ -257,13 +271,27 @@ export function quantiteARegler(uniteFamille: string, total: number) {
 
 export function saisieRegulation(uniteFamille: string, total: number, uniteBase: string, nomProduit = "") {
   if (uniteCompatible(uniteFamille, uniteBase)) return quantiteARegler(uniteFamille, total);
-  if (uniteBase === "piece" && uniteFamille === "ml") {
-    const contenu = volumeParPiece(nomProduit);
-    if (contenu) return { unite: "piece" as const, label: "pièces", valeur: arrondir(total / contenu) };
+  const base = consommationBase(uniteFamille, total, uniteBase, nomProduit);
+  if (base !== null && uniteBase === "piece" && !uniteCompatible(uniteFamille, uniteBase)) {
+    return { unite: "piece" as const, label: "pièces", valeur: base };
   }
   if (uniteBase === "piece") return { unite: "piece" as const, label: "pièces", valeur: 0 };
   if (uniteBase === "ml") return { unite: "L" as const, label: "L", valeur: 0 };
   return { unite: "kg" as const, label: "kg", valeur: 0 };
+}
+
+export function consommationBase(uniteFamille: string, total: number, uniteBase: string, nomProduit = "") {
+  if (total <= 0) return 0;
+  if (uniteCompatible(uniteFamille, uniteBase)) return versBase(total, uniteFamille)?.quantite ?? null;
+  if (uniteBase === "piece" && uniteFamille === "ml") {
+    const contenu = volumeParPiece(nomProduit);
+    if (contenu) return arrondir(total / contenu);
+  }
+  if (uniteBase === "piece" && uniteFamille === "g") {
+    const poids = poidsParPiece(nomProduit);
+    if (poids) return arrondir(total / poids);
+  }
+  return null;
 }
 
 function volumeParPiece(nom: string) {
@@ -273,6 +301,12 @@ function volumeParPiece(nom: string) {
   const litres = texte.match(/(\d+(?:[.,]\d+)?)\s*l\b/);
   if (litres) return Number(litres[1].replace(",", ".")) * 1000;
   return null;
+}
+
+function poidsParPiece(nom: string) {
+  const texte = nom.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/,/g, ".");
+  const valeurs = [...texte.matchAll(/(\d+(?:\.\d+)?)\s*g\b/g)].map((trouve) => Number(trouve[1]));
+  return valeurs.find((valeur) => valeur >= 5 && valeur <= 200) ?? null;
 }
 
 export function repartir(total: number, poids: number[]) {
