@@ -120,13 +120,14 @@ export function assemblerLignes(entree: {
   grammages: LignePortion[];
   inscrits: Comptes;
   absences: Record<string, Comptes>;
-  produits: { id: string; nom: string }[];
+  produits: { id: string; nom: string; uniteBase?: string }[];
 }) {
   const lignes: LignePoint[] = [];
   const ajouter = (ligne: Omit<LignePoint, "unite" | "theorique"> & { service: string }) => {
     if (!estService(ligne.service)) return;
     const compte = presents(entree.inscrits, entree.absences[ligne.repasId] ?? {});
-    if (jetons(ligne.nom).includes("chips")) {
+    const produit = produitDeLaLigne(ligne, entree);
+    if (jetons(ligne.nom).includes("chips") || (produit?.uniteBase && portionUnitaire(produit.nom, produit.uniteBase))) {
       lignes.push({
         ingredientId: ligne.ingredientId,
         repasId: ligne.repasId,
@@ -136,7 +137,7 @@ export function assemblerLignes(entree: {
         grammageCle: ligne.grammageCle,
         unite: "piece",
         theorique: compte.total,
-        produitStockId: ligne.produitStockId,
+        produitStockId: ligne.produitStockId ?? produit?.id ?? null,
       });
       return;
     }
@@ -214,6 +215,28 @@ export function assemblerLignes(entree: {
   }
 
   return lignes;
+}
+
+function produitDeLaLigne(
+  ligne: { produitStockId: string | null; nom: string; platNom: string; platId: string },
+  entree: {
+    ingredients: { platId: string }[];
+    produits: { id: string; nom: string; uniteBase?: string }[];
+  },
+) {
+  const identifiant = ligne.produitStockId ?? produitProbable(
+    ligne.nom,
+    ligne.platNom,
+    entree.ingredients.filter((ingredient) => ingredient.platId === ligne.platId).length === 1,
+    entree.produits,
+  )?.id;
+  return identifiant ? entree.produits.find((produit) => produit.id === identifiant) ?? null : null;
+}
+
+export function portionUnitaire(nom: string, uniteBase: string) {
+  if (uniteBase !== "piece") return false;
+  if (volumeParPiece(nom)) return false;
+  return jetons(nom).includes("chips") || poidsParPiece(nom) !== null;
 }
 
 function famillePourPlat(nom: string) {

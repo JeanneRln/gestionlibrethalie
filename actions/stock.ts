@@ -21,7 +21,7 @@ import { getDb } from "@/lib/db";
 import { ingredients, mouvements, produitsStock, repas } from "@/lib/db/schema";
 import { arrondir, lireNombre } from "@/lib/format";
 import { cheminCentre, rediriger } from "@/lib/navigation";
-import { assemblerLignes, grouperConsommes, lireMoment, repasDuMoment, repartir, saisieRegulation, type LignePoint } from "@/lib/pointStock";
+import { assemblerLignes, grouperConsommes, jetons, lireMoment, portionUnitaire, repasDuMoment, repartir, saisieRegulation, type LignePoint } from "@/lib/pointStock";
 import { estService } from "@/lib/services";
 import { normaliserNom, normaliserUnite, uniteCompatible, versBase } from "@/lib/unites";
 import { stockReel } from "@/lib/projection";
@@ -127,6 +127,15 @@ export async function confirmerRepas(formData: FormData) {
     }
     const produit = produits.find((item) => item.id === produitId);
     if (!produit) rediriger(chemin, "erreur", `Rattachez ${ingredient.nom} à un produit du stock.`);
+    if (portionUnitaire(produit.nom, produit.uniteBase) || jetons(ingredient.nom).includes("chips")) {
+      sorties.push({
+        ingredientId: ingredient.id,
+        produitId: produit.id,
+        quantiteBase: arrondir(saisie),
+        quantiteSaisie: arrondir(saisie),
+      });
+      continue;
+    }
     const famille = grammageLignes.find((item) => item.cle === ingredient.grammageCle);
     const unite = famille?.unite ?? "g";
     if (!uniteCompatible(unite, produit.uniteBase)) {

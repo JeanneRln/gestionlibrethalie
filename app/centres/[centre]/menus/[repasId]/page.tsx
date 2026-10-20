@@ -16,7 +16,7 @@ import {
 } from "@/lib/donnees";
 import { presents } from "@/lib/effectifs";
 import { lireAvis } from "@/lib/navigation";
-import { produitProbable } from "@/lib/pointStock";
+import { portionUnitaire, produitProbable } from "@/lib/pointStock";
 import { estService, libelleService, libelleTypePlat, TYPES_PLAT } from "@/lib/services";
 
 export default async function PageRepas({
@@ -64,7 +64,7 @@ export default async function PageRepas({
             {compte.enfant} enfants · {compte.ado} ados · {compte.adulte} adultes. Les effectifs se modifient dans l'onglet Effectifs.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-ink/70">
-            Chaque ligne est un composant du menu. La famille de portion calcule les grammes. Le produit du stock est le rapprochement avec votre réserve : il est proposé, vous pouvez le corriger, puis enregistrer.
+            Chaque ligne est un composant du menu. S'il correspond à un produit à la pièce (kiri, liégeois, chips…), on compte une pièce par personne. Sinon, la famille de portion calcule le poids.
           </p>
         </div>
         <Link href={`/centres/${centre.slug}/stock/${repas.id}`} className={boutonSecondaire}>
@@ -96,6 +96,8 @@ export default async function PageRepas({
               <ul className="mt-4 space-y-4">
                 {lignes.map((ingredient) => {
                   const quantite = quantiteTheorique(ingredient.grammageCle, service, compte, portions);
+                  const produit = produits.find((item) => item.id === (ingredient.produitStockId ?? produitProbable(ingredient.nom, plat.nom, lignes.length === 1, produits)?.id));
+                  const unitaire = produit ? portionUnitaire(produit.nom, produit.uniteBase) : false;
                   return (
                     <li key={ingredient.id} className="rounded-xl bg-paper px-3 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -109,7 +111,14 @@ export default async function PageRepas({
                           </button>
                         </form>
                       </div>
-                      {quantite ? (
+                      {unitaire ? (
+                        <DetailQuantite
+                          presents={compte}
+                          portions={{ enfant: 1, ado: 1, adulte: 1 }}
+                          unite="piece"
+                          total={compte.total}
+                        />
+                      ) : quantite ? (
                         <DetailQuantite presents={compte} portions={quantite.portions} unite={quantite.unite} total={quantite.total} />
                       ) : (
                         <p className="text-sm text-danger">Famille de grammage inconnue.</p>

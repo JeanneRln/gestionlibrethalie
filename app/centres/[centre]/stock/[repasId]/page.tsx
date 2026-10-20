@@ -16,6 +16,7 @@ import {
 import { arrondir } from "@/lib/format";
 import { lireAvis } from "@/lib/navigation";
 import { presents } from "@/lib/effectifs";
+import { portionUnitaire, produitProbable } from "@/lib/pointStock";
 import { estService, libelleService } from "@/lib/services";
 
 export default async function PageMajStock({
@@ -84,12 +85,16 @@ export default async function PageMajStock({
               <legend className="px-1 font-serif text-xl">{plat.nom}</legend>
               {lignes.map((ingredient) => {
                 const quantite = quantiteTheorique(ingredient.grammageCle, service, compte, portions);
-                const defaut = ingredient.quantiteConfirmee ?? (quantite ? arrondir(quantite.total) : 0);
+                const produit = produits.find((item) => item.id === (ingredient.produitStockId ?? produitProbable(ingredient.nom, plat.nom, lignes.length === 1, produits)?.id));
+                const unitaire = produit ? portionUnitaire(produit.nom, produit.uniteBase) : false;
+                const defaut = ingredient.quantiteConfirmee ?? (unitaire ? compte.total : quantite ? arrondir(quantite.total) : 0);
                 return (
                   <div key={ingredient.id} className="grid gap-3 border-t border-line pt-3 lg:grid-cols-[1fr_10rem_14rem]">
                     <div>
                       <p className="font-medium">{ingredient.nom}</p>
-                      {quantite ? (
+                      {unitaire ? (
+                        <DetailQuantite presents={compte} portions={{ enfant: 1, ado: 1, adulte: 1 }} unite="piece" total={compte.total} />
+                      ) : quantite ? (
                         <DetailQuantite
                           presents={compte}
                           portions={quantite.portions}
@@ -101,7 +106,7 @@ export default async function PageMajStock({
                       )}
                     </div>
                     <label className="text-sm">
-                      <span className="mb-1 block text-ink/60">Quantité réelle ({quantite?.unite === "piece" ? "pièces" : quantite?.unite === "ml" ? "ml" : "g"})</span>
+                      <span className="mb-1 block text-ink/60">Quantité réelle ({unitaire ? "pièces" : quantite?.unite === "ml" ? "ml" : "g"})</span>
                       <input className={champ} type="number" min={0} step="0.01" name={`q_${ingredient.id}`} defaultValue={defaut} />
                     </label>
                     <label className="text-sm">
