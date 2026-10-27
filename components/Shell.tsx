@@ -62,7 +62,7 @@ export function Shell({
         {aConfirmer.length > 0 ? (
           <div className="px-5 pt-4 sm:px-8">
             <Link
-              href={`/centres/${centre.slug}/stock/point`}
+              href={`/centres/${centre.slug}/stock`}
               className="block rounded-xl bg-warnbg px-4 py-3 text-sm font-medium text-warn"
             >
               {aConfirmer.length === 1 && premier

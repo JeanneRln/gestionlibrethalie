@@ -181,17 +181,17 @@ export async function confirmerRepas(formData: FormData) {
 export async function confirmerAvant(formData: FormData) {
   const slug = String(formData.get("slug") ?? "");
   const momentTexte = String(formData.get("moment") ?? "");
-  const chemin = `${cheminCentre(slug || "menton", "stock/point")}?moment=${encodeURIComponent(momentTexte)}`;
+  const chemin = `${cheminCentre(slug || "menton", "stock")}?moment=${encodeURIComponent(momentTexte)}`;
   const centre = await trouverCentre(slug);
   if (!centre) rediriger("/centres/menton/menus", "erreur", "Centre introuvable.");
   const moment = lireMoment(momentTexte);
-  if (!moment) rediriger(cheminCentre(slug, "stock/point"), "erreur", "Choisissez d'abord où vous en êtes.");
+  if (!moment) rediriger(cheminCentre(slug, "stock"), "erreur", "Choisissez d'abord l'heure du point.");
 
   const sejour = await sejourDuCentre(centre.id);
   if (!sejour) rediriger(cheminCentre(slug, "stock"), "erreur", "Créez d'abord le séjour.");
   const liste = await repasDuSejour(sejour.id);
   if (!liste.some((item) => item.id === moment.repasId)) {
-    rediriger(cheminCentre(slug, "stock/point"), "erreur", "Ce repas est introuvable.");
+    rediriger(cheminCentre(slug, "stock"), "erreur", "Ce repas est introuvable.");
   }
   const cibles = repasDuMoment(liste, moment);
   if (cibles.length === 0) {

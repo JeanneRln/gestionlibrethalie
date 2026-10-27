@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ajouterProduit, ajusterStock } from "@/actions/stock";
+import { ajouterProduit, ajusterStock, confirmerAvant } from "@/actions/stock";
 import { Bandeau } from "@/components/Bandeau";
 import { bouton, boutonSecondaire, champ } from "@/components/styles";
 import { bilanSemaine, classerBilan, proposableAuMenu, type LigneBilan } from "@/lib/bilan";
@@ -13,16 +13,16 @@ import {
   mouvementsDuCentre,
   platsDesRepas,
   produitsDuCentre,
-  repasAConfirmer,
   repasDuSejour,
   resoudreCentre,
   sejourDuCentre,
 } from "@/lib/donnees";
 import { formaterPortion, formaterQuantite } from "@/lib/format";
 import { lireAvis } from "@/lib/navigation";
+import { assemblerLignes, grouperConsommes, lireMoment, repasDuMoment, saisieRegulation } from "@/lib/pointStock";
 import { stockReel } from "@/lib/projection";
-import { estService } from "@/lib/services";
-import { UNITES_COMMANDE } from "@/lib/unites";
+import { estService, libelleService, SERVICES } from "@/lib/services";
+import { UNITES_COMMANDE, uniteCompatible } from "@/lib/unites";
 
 export default async function PageStock({
   params,
@@ -32,12 +32,12 @@ export default async function PageStock({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const centre = await resoudreCentre(params);
-  const avis = await lireAvis(searchParams);
-  const [produits, mouvementsListe, sejour, aConfirmer] = await Promise.all([
+  const query = await searchParams;
+  const avis = await lireAvis(Promise.resolve(query));
+  const [produits, mouvementsListe, sejour] = await Promise.all([
     produitsDuCentre(centre.id),
     mouvementsDuCentre(centre.id),
     sejourDuCentre(centre.id),
-    repasAConfirmer(centre.id),
   ]);
   const mouvements = mouvementsListe.map((mouvement) => ({
     produitId: mouvement.produitId,
@@ -53,6 +53,40 @@ export default async function PageStock({
   const ingredients = plats.length > 0 ? await ingredientsDesPlats(plats.map((plat) => plat.id)) : [];
   const grammages = sejour ? await grammagesDuCentre(centre.id) : [];
   const jours = sejour ? chaqueJour(sejour.dateDebut, sejour.dateFin) : [];
+  const inscrits = sejour ? await comptesEffectifs(sejour.id) : {};
+  const absences = await absencesDesRepas(liste.map((item) => item.id));
+  const portions = grammages.map((ligne) => ({
+    cle: ligne.cle,
+    serviceGroupe: ligne.serviceGroupe as "repas_principal" | "petit_dej_gouter" | "diner_enfant",
+    unite: ligne.unite,
+    retenuEnfant: ligne.retenuEnfant,
+    retenuAdo: ligne.retenuAdo,
+    retenuAdulte: ligne.retenuAdulte,
+  }));
+  const moment = lireMoment(typeof query.moment === "string" ? query.moment : "");
+  const limite = moment ? liste.find((repas) => repas.id === moment.repasId) : undefined;
+  const momentValide = moment && limite ? moment : null;
+  const cibles = momentValide ? repasDuMoment(liste, momentValide) : [];
+  const platsCibles = cibles.length > 0 ? plats.filter((plat) => cibles.some((repas) => repas.id === plat.repasId)) : [];
+  const groupes = momentValide
+    ? grouperConsommes(
+        assemblerLignes({
+          repas: cibles,
+          plats: platsCibles,
+          ingredients: ingredients.filter((ingredient) => platsCibles.some((plat) => plat.id === ingredient.platId)),
+          grammages: portions,
+          inscrits,
+          absences,
+          produits,
+        }),
+        produits,
+      )
+    : [];
+  const reglables = groupes.flatMap((groupe) => {
+    const produit = produits.find((item) => item.id === groupe.produitStockId);
+    return produit ? [{ groupe, produit }] : [];
+  });
+  const laisses = groupes.filter((groupe) => !groupe.produitStockId).map((groupe) => groupe.titre);
   const bilan = sejour
     ? bilanSemaine({
         produits,
@@ -62,16 +96,9 @@ export default async function PageStock({
         ),
         plats,
         ingredients,
-        grammages: grammages.map((ligne) => ({
-          cle: ligne.cle,
-          serviceGroupe: ligne.serviceGroupe as "repas_principal" | "petit_dej_gouter" | "diner_enfant",
-          unite: ligne.unite,
-          retenuEnfant: ligne.retenuEnfant,
-          retenuAdo: ligne.retenuAdo,
-          retenuAdulte: ligne.retenuAdulte,
-        })),
-        inscrits: await comptesEffectifs(sejour.id),
-        absences: await absencesDesRepas(liste.map((item) => item.id)),
+        grammages: portions,
+        inscrits,
+        absences,
       })
     : { lignes: [], nonComptes: [] };
 
@@ -91,17 +118,91 @@ export default async function PageStock({
     <div className="space-y-8">
       <Bandeau erreur={avis.erreur} message={avis.message} />
 
-      {aConfirmer.length > 0 ? (
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-warnbg p-5">
-          <div>
-            <h2 className="font-serif text-2xl text-warn">Repas déjà passés</h2>
-            <p className="mt-1 text-sm text-ink/70">Indiquez ce qui est vraiment sorti. Le stock et la semaine se mettent à jour ensuite.</p>
-          </div>
-          <Link href={`/centres/${centre.slug}/stock/point`} className={bouton}>
-            Régulariser
-          </Link>
-        </section>
-      ) : null}
+      <section className="space-y-4 rounded-2xl border border-line bg-card p-5">
+        <div>
+          <h2 className="font-serif text-3xl">Point de stock</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink/70">
+            Choisissez l'heure. Tout ce qui a été servi avant cette heure sort du stock. Le chiffre proposé est celui du menu : corrigez-le si besoin.
+          </p>
+        </div>
+        {liste.length === 0 ? (
+          <p className="text-sm text-ink/70">Créez d'abord le séjour.</p>
+        ) : (
+          <form action={`/centres/${centre.slug}/stock`} method="get" className="grid max-w-xl gap-3">
+            <label className="text-sm">
+              <span className="mb-1 block text-ink/60">Heure du point</span>
+              <select className={champ} name="moment" defaultValue={momentValide ? `${momentValide.cote}:${momentValide.repasId}` : ""} required>
+                <option value="" disabled>
+                  Choisir une heure
+                </option>
+                {liste.map((repas) => (
+                  <option key={repas.id} value={`avant:${repas.id}`}>
+                    {libelleHeure(repas.service, repas.date)}
+                  </option>
+                ))}
+                {liste.at(-1) ? (
+                  <option value={`apres:${liste.at(-1)?.id}`}>
+                    Après le dernier repas, {libelleHeure(liste.at(-1)?.service ?? "", liste.at(-1)?.date ?? "").toLowerCase()}
+                  </option>
+                ) : null}
+              </select>
+            </label>
+            <button className={boutonSecondaire} type="submit">
+              Voir les sorties
+            </button>
+          </form>
+        )}
+        {momentValide && limite ? (
+          <form action={confirmerAvant} className="space-y-3 border-t border-line pt-4">
+            <input type="hidden" name="slug" value={centre.slug} />
+            <input type="hidden" name="moment" value={`${momentValide.cote}:${momentValide.repasId}`} />
+            <p className="text-sm text-ink/70">
+              {momentValide.cote === "avant"
+                ? `Repas servis avant ${libelleHeure(limite.service, limite.date).toLowerCase()}.`
+                : "Tous les repas du séjour, y compris le dernier."}
+            </p>
+            {cibles.length === 0 ? (
+              <p className="text-sm text-ink/70">Rien à sortir pour cette heure.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {cibles.map((repas) => (
+                  <li key={repas.id} className="rounded-full bg-paper px-3 py-1 text-sm">
+                    {estService(repas.service) ? libelleService(repas.service) : repas.service} · {formaterJourCourt(repas.date)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {reglables.map(({ groupe, produit }, index) => {
+              const saisie = saisieRegulation(groupe.unite, groupe.theorique, produit.uniteBase, produit.nom);
+              const memeUnite = uniteCompatible(groupe.unite, produit.uniteBase);
+              return (
+                <label key={groupe.cle} className="grid gap-2 rounded-xl bg-paper p-3 sm:grid-cols-[minmax(0,1fr)_9rem] sm:items-center">
+                  <span>
+                    <span className="block font-medium">{groupe.titre}</span>
+                    <span className="mt-0.5 block text-xs text-ink/55">
+                      {groupe.plats.join(", ")}
+                      {memeUnite ? "" : ` · portion prévue ${formaterPortion(groupe.theorique, groupe.unite)}`}
+                    </span>
+                    <input type="hidden" name={`ids_${index}`} value={groupe.lignes.map((ligne) => ligne.ingredientId).join(",")} />
+                  </span>
+                  <span className="text-sm">
+                    <span className="mb-1 block text-ink/60">{saisie.label}</span>
+                    <input className={champ} type="number" min={0} step="0.01" name={`q_${index}`} defaultValue={saisie.valeur} aria-label={`${groupe.titre} en ${saisie.label}`} />
+                  </span>
+                </label>
+              );
+            })}
+            {laisses.length > 0 ? (
+              <p className="text-sm text-ink/55">Pas reliés à un produit, donc pas sortis : {laisses.join(", ")}.</p>
+            ) : null}
+            {cibles.length > 0 ? (
+              <button className={bouton} type="submit">
+                Sortir du stock
+              </button>
+            ) : null}
+          </form>
+        ) : null}
+      </section>
 
       {!sejour ? (
         <p className="rounded-2xl border border-line bg-card p-5 text-sm text-ink/70">Créez d'abord le séjour pour voir la semaine.</p>
@@ -306,6 +407,13 @@ export default async function PageStock({
       </section>
     </div>
   );
+}
+
+function libelleHeure(service: string, date: string) {
+  const brut = SERVICES.find((item) => item.id === service)?.heure ?? "";
+  const [heures, minutes] = brut.split(":");
+  const heure = minutes === "00" ? `${Number(heures)} h` : `${Number(heures)} h ${minutes}`;
+  return `${formaterJour(date)} à ${heure}`;
 }
 
 function Bloc({
